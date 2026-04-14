@@ -2,96 +2,77 @@ import streamlit as st
 from PIL import Image
 import io
 
-# --- CORE LOGIC ---
+# --- ENCRYPTION LOGIC ---
+def apply_password(message, password):
+    # This mixes the message with the password so it's scrambled
+    return "".join(chr(ord(c) ^ ord(password[i % len(password)])) for i, c in enumerate(message))
+
 def text_to_bin(message):
-    # Converts text to binary bits
     return bin(int.from_bytes(message.encode(), 'big')).replace('0b', '') + '1111111111111110'
 
 def bin_to_text(binary_str):
-    # Converts binary bits back to text
     try:
         binary_str = binary_str.split('1111111111111110')[0]
         n = int(binary_str, 2)
         return n.to_bytes((n.bit_length() + 7) // 8, 'big').decode()
     except:
-        return "❌ Error: No hidden message found."
+        return None
 
 # --- UI SETUP ---
-st.set_page_config(page_title="Cyber-Stego", page_icon="🔐")
+st.set_page_config(page_title="Secure-Stego", page_icon="🔐")
+st.title("🔐 Secure Ghost Encoder")
 
-# Sidebar
-st.sidebar.title("🚀 Quick Guide")
-st.sidebar.info("This tool hides text inside the pixels of an image.")
-st.sidebar.warning("❗ Use ONLY .PNG files. JPEGs will scramble the secret.")
-
-# Main Title (Simplified to avoid TypeError)
-st.title("🔐 Cyber-Stego Encoder")
-st.write("The art of hiding messages in plain sight.")
-
-tab1, tab2 = st.tabs(["📥 Encode (Hide)", "📤 Decode (Reveal)"])
+tab1, tab2 = st.tabs(["📥 Secure Encode", "📤 Secure Decode"])
 
 with tab1:
-    st.subheader("Hide a Secret")
-    # This is the "Creative" text you asked for:
-    st.error("📸 IMPORTANT: This only works with PNG images.")
-    
-    uploaded_file = st.file_uploader("Upload your base image", type=["png"], key="enc_upload")
+    st.subheader("1. Hide & Encrypt")
+    uploaded_file = st.file_uploader("Upload PNG", type=["png"], key="enc")
     
     if uploaded_file:
         img = Image.open(uploaded_file).convert("RGB")
-        st.image(img, caption="Ready to encode", use_container_width=True)
+        msg = st.text_input("Message:")
+        pwd = st.text_input("Set Password:", type="password") # Hides the typing
         
-        secret_msg = st.text_input("🤫 Secret Message:", placeholder="Type your secret here...")
-        
-        if st.button("✨ Generate Ghost Image") and secret_msg:
-            with st.spinner('Mixing bits...'):
-                binary_msg = text_to_bin(secret_msg)
-                pixels = list(img.getdata())
-                new_pixels = []
-                msg_idx = 0
-                
-                for pixel in pixels:
-                    if msg_idx < len(binary_msg):
-                        # Modify the Red channel bit
-                        new_red = (pixel[0] & ~1) | int(binary_msg[msg_idx])
-                        new_pixels.append((new_red, pixel[1], pixel[2]))
-                        msg_idx += 1
-                    else:
-                        new_pixels.append(pixel)
-                
-                new_img = Image.new(img.mode, img.size)
-                new_img.putdata(new_pixels)
-                
-                # Save to memory
-                buf = io.BytesIO()
-                new_img.save(buf, format="PNG")
-                byte_im = buf.getvalue()
-                
-                st.balloons()
-                st.success("Hidden! Now download and send it.")
-                st.download_button(
-                    label="💾 Download Result", 
-                    data=byte_im, 
-                    file_name="ghost_image.png", 
-                    mime="image/png"
-                )
+        if st.button("Lock Message in Image") and msg and pwd:
+            # First, scramble the message with the password
+            secure_msg = apply_password(msg, pwd)
+            binary_msg = text_to_bin(secure_msg)
+            
+            # Hide the bits
+            pixels = list(img.getdata())
+            new_pixels = []
+            msg_idx = 0
+            for p in pixels:
+                if msg_idx < len(binary_msg):
+                    new_red = (p[0] & ~1) | int(binary_msg[msg_idx])
+                    new_pixels.append((new_red, p[1], p[2]))
+                    msg_idx += 1
+                else:
+                    new_pixels.append(p)
+            
+            new_img = Image.new("RGB", img.size)
+            new_img.putdata(new_pixels)
+            buf = io.BytesIO()
+            new_img.save(buf, format="PNG")
+            st.success("Encrypted and Hidden!")
+            st.download_button("Download Secure PNG", buf.getvalue(), "secure.png")
 
 with tab2:
-    st.subheader("Reveal a Secret")
-    decode_file = st.file_uploader("Upload a Ghost PNG", type=["png"], key="dec_upload")
+    st.subheader("2. Decrypt & Reveal")
+    decode_file = st.file_uploader("Upload Secure PNG", type=["png"], key="dec")
     
     if decode_file:
-        img = Image.open(decode_file).convert("RGB")
-        st.image(img, width=250)
+        pwd_attempt = st.text_input("Enter Password to Unlock:", type="password")
         
-        if st.button("🔍 Extract Secret"):
-            pixels = list(img.getdata())
-            binary_msg = ""
-            for pixel in pixels:
-                binary_msg += str(pixel[0] & 1)
-                if '1111111111111110' in binary_msg:
-                    break
+        if st.button("Unlock Message") and pwd_attempt:
+            pixels = list(Image.open(decode_file).getdata())
+            binary_msg = "".join([str(p[0] & 1) for p in pixels])
             
-            result = bin_to_text(binary_msg)
-            st.info("Hidden Message Found:")
-            st.code(result)
+            raw_data = bin_to_text(binary_msg)
+            
+            if raw_data:
+                # Scramble it back using the password attempt
+                final_msg = apply_password(raw_data, pwd_attempt)
+                st.info(f"🔓 Decrypted Message: {final_msg}")
+            else:
+                st.error("No hidden data found.")
